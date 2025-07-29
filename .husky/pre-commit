@@ -1,0 +1,9 @@
+﻿# Overwrite the pre-commit file in UTF-8
+@"
+#!/usr/bin/env sh
+# Abort commit if a JWT_SECRET appears in staged files
+if git diff --cached --name-only -z | xargs -0 grep -IREn --cached "JWT_SECRET" --with-filename --line-number; then
+  echo "🚫  Remove JWT_SECRET before committing."
+  exit 1
+fi
+"@ | Out-File -FilePath .husky/pre-commit -Encoding utf8 -Force
