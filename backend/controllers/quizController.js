@@ -1,258 +1,243 @@
-const { QuizType, Question, User, UserProgress, QuizSession, SessionQuestion } = require('../models');
-const { Op } = require('sequelize');
+// backend/controllers/quizController.js
 
-// Get quiz types from database (FINRA certifications)
+const {
+  QuizType,
+  Question,
+  QuizSession,
+  SessionQuestion,
+  UserProgress
+} = require('../models');
+
+// 1️⃣ Get FINRA certification types
 exports.getQuizTypes = async (req, res) => {
   try {
     const quizTypes = await QuizType.findAll({
-      attributes: ['id', 'name', 'displayName', 'totalQuestions', 'passingScore', 'timeLimit', 'description'],
+      attributes: [
+        'id',
+        'name',
+        'displayName',
+        'totalQuestions',
+        'passingScore',
+        'timeLimit',
+        'description'
+      ],
       order: [['name', 'ASC']]
     });
-    
-    console.log(`Retrieved ${quizTypes.length} FINRA quiz types from database`);
-    res.json(quizTypes);
-  } catch (error) {
-    console.error('Error fetching quiz types:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch quiz types from database', 
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Database error'
-    });
+    return res.json(quizTypes);
+  } catch (err) {
+    console.error('getQuizTypes error:', err);
+    return res.status(500).json({ message: 'Failed to fetch quiz types' });
   }
 };
 
-// Get questions from database for a specific quiz type
+// 2️⃣ Get questions for a given quiz type
 exports.getQuestions = async (req, res) => {
   try {
     const { quiz_type_id, mode, count } = req.body;
-    
     if (!quiz_type_id) {
-      return res.status(400).json({ message: 'Quiz type ID is required' });
+      return res.status(400).json({ message: 'quiz_type_id is required' });
     }
 
-    // Verify quiz type exists
-    const quizType = await QuizType.findByPk(quiz_type_id);
-    if (!quizType) {
+    const qt = await QuizType.findByPk(quiz_type_id);
+    if (!qt) {
       return res.status(404).json({ message: 'Quiz type not found' });
     }
 
-    // Determine how many questions to fetch
-    let questionCount;
-    if (mode === 'segmented' || mode === 'practice') {
-      questionCount = Math.min(count || 10, 10); // Max 10 for practice mode
-    } else {
-      questionCount = Math.min(count || quizType.totalQuestions, quizType.totalQuestions);
-    }
+    const limit =
+      mode === 'segmented' ? Math.min(count || 10, 10) : qt.totalQuestions;
 
-    // Fetch questions from database - order by random for variety
     const questions = await Question.findAll({
       where: { quizTypeId: quiz_type_id },
-      order: [['id', 'ASC']], // For now use sequential, could add randomization later
-      limit: questionCount,
+      order: [['id', 'ASC']],
+      limit,
       attributes: [
-        'id', 'questionText', 'optionA', 'optionB', 'optionC', 'optionD', 
-        'correctAnswer', 'explanation', 'topic', 'difficultyLevel'
+        'id',
+        'questionText',
+        'optionA',
+        'optionB',
+        'optionC',
+        'optionD',
+        'correctAnswer',
+        'explanation'
       ]
     });
 
-    if (questions.length === 0) {
-      return res.status(404).json({ 
-        message: `No questions found for ${quizType.name}. Please run the database seeding script: node scripts/seedDatabase.js` 
-      });
-    }
-
-    console.log(`Retrieved ${questions.length} questions for ${quizType.name} from database`);
-
-    // Format questions for frontend (convert correctAnswer letter to index)
-    const formattedQuestions = questions.map(q => ({
+    const formatted = questions.map(q => ({
       id: q.id,
       question: q.questionText,
       options: [q.optionA, q.optionB, q.optionC, q.optionD],
       correctAnswer: ['A', 'B', 'C', 'D'].indexOf(q.correctAnswer),
-      explanation: q.explanation,
-      topic: q.topic,
-      difficulty: q.difficultyLevel
+      explanation: q.explanation
     }));
 
-    res.json({
-      questions: formattedQuestions,
-      count: formattedQuestions.length,
-      quizType: {
-        id: quizType.id,
-        name: quizType.name,
-        displayName: quizType.displayName,
-        totalQuestions: quizType.totalQuestions
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching questions:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch questions from database',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Database error'
-    });
+    return res.json({ questions: formatted, count: formatted.length });
+  } catch (err) {
+    console.error('getQuestions error:', err);
+    return res.status(500).json({ message: 'Failed to fetch questions' });
   }
 };
 
-// Start quiz session with database integration
+// 3️⃣ Start a quiz session
 exports.startSession = async (req, res) => {
   try {
-    const { quiz_type_id, mode } = req.body;
-    const userId = req.user?.id || 1; // Default to user 1 for now
-    
+    const { quiz_type_id, mode, count } = req.body;
     if (!quiz_type_id || !mode) {
-      return res.status(400).json({ message: 'Quiz type and mode are required' });
+      return res
+        .status(400)
+        .json({ message: 'quiz_type_id and mode are required' });
     }
 
-    // Verify quiz type exists
-    const quizType = await QuizType.findByPk(quiz_type_id);
-    if (!quizType) {
-      return res.status(404).json({ message: 'Quiz type not found in database' });
+    const qt = await QuizType.findByPk(quiz_type_id);
+    if (!qt) {
+      return res.status(404).json({ message: 'Quiz type not found' });
     }
 
-    // Create quiz session in database
+    const questionCount =
+      mode === 'segmented' ? Math.min(count || 10, 10) : qt.totalQuestions;
+
     const session = await QuizSession.create({
-      userId: userId,
+      userId: req.user?.id || 1,
       quizTypeId: quiz_type_id,
-      mode: mode,
-      startedAt: new Date(),
-      status: 'active'
+      sessionType: mode,
+      totalQuestions: questionCount,
+      startTime: new Date(),
+      isCompleted: false
     });
 
-    console.log(`Started ${mode} session for ${quizType.name} (Session ID: ${session.id})`);
-
-    res.json({
+    return res.json({
       session_id: session.id,
-      quiz_type_id: quiz_type_id,
-      mode: mode,
-      started_at: session.startedAt,
-      quiz_type_name: quizType.name,
-      quiz_type_display: quizType.displayName
+      quiz_type_id,
+      mode,
+      totalQuestions: questionCount,
+      started_at: session.startTime
     });
-
-  } catch (error) {
-    console.error('Error starting session:', error);
-    res.status(500).json({ 
-      message: 'Failed to start quiz session',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Database error'
-    });
+  } catch (err) {
+    console.error('startSession error:', err);
+    return res.status(500).json({ message: 'Failed to start session' });
   }
 };
 
-// Submit answer
+// 4️⃣ Submit an answer
 exports.submitAnswer = async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { questionId, answer } = req.body;
-
     if (!sessionId || !questionId || answer === undefined) {
-      return res.status(400).json({ message: 'Session ID, question ID, and answer are required' });
+      return res
+        .status(400)
+        .json({ message: 'sessionId, questionId, and answer are required' });
     }
 
-    // Verify session exists and is active
     const session = await QuizSession.findByPk(sessionId);
-    if (!session || session.status !== 'active') {
+    if (!session || session.isCompleted) {
       return res.status(404).json({ message: 'Active session not found' });
     }
 
-    // Get the question to check correct answer
-    const question = await Question.findByPk(questionId);
-    if (!question) {
+    const q = await Question.findByPk(questionId);
+    if (!q) {
       return res.status(404).json({ message: 'Question not found' });
     }
 
-    const correctAnswerIndex = ['A', 'B', 'C', 'D'].indexOf(question.correctAnswer);
-    const isCorrect = answer === correctAnswerIndex;
+    const correctIdx = ['A', 'B', 'C', 'D'].indexOf(q.correctAnswer);
+    const isCorrect = answer === correctIdx;
 
-    // Save the answer
     await SessionQuestion.create({
       sessionId: sessionId,
       questionId: questionId,
+      questionOrder: session.totalQuestions ? session.totalQuestions + 1 : 1,
       userAnswer: answer,
       isCorrect: isCorrect,
       answeredAt: new Date()
     });
 
-    console.log(`Answer submitted for session ${sessionId}, question ${questionId}: ${answer} (${isCorrect ? 'Correct' : 'Incorrect'})`);
-
-    res.json({
-      success: true,
-      sessionId: sessionId,
-      questionId: questionId,
-      answer: answer,
-      isCorrect: isCorrect,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Error submitting answer:', error);
-    res.status(500).json({ message: 'Failed to submit answer' });
+    return res.json({ success: true, isCorrect });
+  } catch (err) {
+    console.error('submitAnswer error:', err);
+    return res
+      .status(500)
+      .json({ message: 'Failed to submit answer', details: err.message });
   }
 };
 
-// Get session results
+// 5️⃣ Get session results
 exports.getSessionResults = async (req, res) => {
   try {
     const { sessionId } = req.params;
-
     if (!sessionId) {
-      return res.status(400).json({ message: 'Session ID is required' });
+      return res.status(400).json({ message: 'sessionId is required' });
     }
 
-    // Get session with quiz type info
     const session = await QuizSession.findByPk(sessionId, {
-      include: [{ model: QuizType, attributes: ['name', 'displayName', 'passingScore'] }]
+      include: [{ model: QuizType }]
     });
-
     if (!session) {
       return res.status(404).json({ message: 'Session not found' });
     }
 
-    // Get all answers for this session
-    const sessionQuestions = await SessionQuestion.findAll({
+    const answers = await SessionQuestion.findAll({
       where: { sessionId: sessionId },
-      include: [{
-        model: Question,
-        attributes: ['questionText', 'correctAnswer', 'explanation']
-      }]
+      include: [
+        {
+          model: Question,
+          attributes: ['questionText', 'correctAnswer', 'explanation']
+        }
+      ]
     });
 
-    const totalQuestions = sessionQuestions.length;
-    const correctAnswers = sessionQuestions.filter(sq => sq.isCorrect).length;
-    const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
-    const passed = score >= session.QuizType.passingScore;
+    const total = answers.length;
+    const correct = answers.filter(a => a.isCorrect).length;
+    const score = total ? Math.round((correct / total) * 100) : 0;
 
-    // Update session status
     await session.update({
-      status: 'completed',
+      isCompleted: true,
       completedAt: new Date(),
-      score: score
+      score
     });
 
-    res.json({
+    const results = answers.map(a => ({
+      questionId: a.questionId,
+      questionText: a.Question.questionText,
+      userAnswer: a.userAnswer,
+      correctAnswer: ['A', 'B', 'C', 'D'].indexOf(
+        a.Question.correctAnswer
+      ),
+      isCorrect: a.isCorrect,
+      explanation: a.Question.explanation
+    }));
+
+    return res.json({
       sessionId: sessionId,
-      quizType: session.QuizType.displayName,
-      totalQuestions: totalQuestions,
-      correctAnswers: correctAnswers,
-      incorrectAnswers: totalQuestions - correctAnswers,
-      score: score,
-      passingScore: session.QuizType.passingScore,
-      passed: passed,
-      completedAt: new Date().toISOString(),
-      questionResults: sessionQuestions.map(sq => ({
-        questionId: sq.questionId,
-        questionText: sq.Question.questionText,
-        userAnswer: sq.userAnswer,
-        correctAnswer: ['A', 'B', 'C', 'D'].indexOf(sq.Question.correctAnswer),
-        isCorrect: sq.isCorrect,
-        explanation: sq.Question.explanation
-      }))
+      totalQuestions: total,
+      correctAnswers: correct,
+      score,
+      questionResults: results
     });
-
-  } catch (error) {
-    console.error('Error getting session results:', error);
-    res.status(500).json({ message: 'Failed to get session results' });
+  } catch (err) {
+    console.error('getSessionResults error:', err);
+    return res
+      .status(500)
+      .json({ message: 'Failed to get session results', details: err.message });
   }
 };
 
-// REMOVE AI GENERATION - Database driven only
-// Note: You can keep a separate script for updating database with new questions
+// 6️⃣ Get user progress (optional)
+exports.getUserProgress = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    const progress = await UserProgress.findAll({
+      where: { userId },
+      include: [{ model: QuizType, attributes: ['displayName'] }]
+    });
+
+    return res.json(progress);
+  } catch (err) {
+    console.error('getUserProgress error:', err);
+    return res
+      .status(500)
+      .json({ message: 'Failed to fetch progress', details: err.message });
+  }
+};

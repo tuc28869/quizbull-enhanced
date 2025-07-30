@@ -1,14 +1,22 @@
-export default function QuestionCard({ question, onSelect }) {
+import React from 'react';
+
+export default function QuestionCard({ questionId, options, onAnswer, disabled }) {
   return (
     <div>
-      <p>{question.questionText}</p>
-      {Object.entries(question.options).map(([key, val]) => (
+      {options.map((opt, idx) => (
         <button
-          key={key}
-          onClick={() => onSelect(key)}
-          style={{ display: 'block', margin: '6px 0' }}
+          key={idx}
+          onClick={() => onAnswer(questionId, idx)}
+          disabled={disabled}
+          style={{
+            display: 'block',
+            width: '100%',
+            margin: '8px 0',
+            padding: '12px',
+            fontSize: '16px'
+          }}
         >
-          {key}. {val}
+          {opt}
         </button>
       ))}
     </div>

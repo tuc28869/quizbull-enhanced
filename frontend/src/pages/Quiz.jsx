@@ -1,59 +1,101 @@
+import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-
-import { submitAnswer } from '../app/slices/sessionSlice';
+import { useParams, useNavigate } from 'react-router-dom';
 import QuestionCard from '../components/QuestionCard';
-import ProgressBar from '../components/ProgressBar';
+import { submitAnswer, getSessionResults } from '../app/slices/sessionSlice';
+import { nextQuestion } from '../app/slices/sessionSlice';
 
 export default function Quiz() {
-  const { sessionId } = useParams();
   const dispatch = useDispatch();
-  const session = useSelector(s => s.session);
-  const { questions, answers, currentIndex, mode } = session;
+  const navigate = useNavigate();
+  const { sessionId } = useParams();
 
-  const total = questions.length;
-  const answered = Object.keys(answers).length;
+  const {
+    questions,
+    currentIndex,
+    submittingAnswer,
+    results
+  } = useSelector((state) => state.session);
+  
+  // Local UI state for feedback message
+  const [feedback, setFeedback] = useState(null);
 
-  // Timer state
-  const [elapsed, setElapsed] = useState(0);
+  // When all questions done, fetch results and navigate
   useEffect(() => {
-    const id = setInterval(() => setElapsed(e => e + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
+    if (currentIndex >= questions.length && questions.length > 0) {
+      dispatch(getSessionResults({ session_id: sessionId }))
+        .unwrap()
+        .then(() => navigate(`/results/${sessionId}`));
+    }
+  }, [currentIndex, questions.length, dispatch, navigate, sessionId]);
 
-  if (!questions[currentIndex]) return <p>Loading questions…</p>;
-
-  const q = questions[currentIndex];
-
-  function handleAnswer(choice) {
-    dispatch(
-      submitAnswer({
-        session_id: sessionId,
-        question_id: q.id,
-        userAnswer: choice
+  // Handle an answer click
+  const handleAnswer = (questionId, userAnswer) => {
+    if (submittingAnswer) return;
+    dispatch(submitAnswer({
+      session_id: sessionId,
+      question_id: questionId,
+      userAnswer
+    }))
+      .unwrap()
+      .then(({ isCorrect }) => {
+        // Build feedback
+        const q = questions[currentIndex];
+        if (isCorrect) {
+          setFeedback({ text: '✅ Correct!', correct: true });
+        } else {
+          const correctText = q.options[q.correctAnswer];
+          setFeedback({
+            text: `❌ Incorrect. Correct answer: "${correctText}". ${q.explanation}`,
+            correct: false
+          });
+        }
+        // After delay, clear feedback and move on
+        setTimeout(() => {
+          setFeedback(null);
+          dispatch(nextQuestion());
+        }, 2000);
       })
-    );
+      .catch(err => {
+        console.error('Answer submission failed:', err);
+        alert('Failed to submit answer. Please try again.');
+      });
+  };
+
+  if (questions.length === 0) {
+    return <p>Loading questions…</p>;
   }
 
-  // Block number label
-  const blockSize = 10;
-  const block = Math.floor(currentIndex / blockSize) + 1;
-  const totalBlocks = Math.ceil(total / blockSize);
+  if (currentIndex >= questions.length) {
+    return <p>All done! Calculating results…</p>;
+  }
+
+  const current = questions[currentIndex];
 
   return (
-    <div>
+    <div style={{ maxWidth: 600, margin: '0 auto', padding: 20 }}>
       <h2>
-        {mode === 'segmented'
-          ? `Block ${block} / ${totalBlocks}`
-          : `Question ${currentIndex + 1} / ${total}`}
+        Question {currentIndex + 1} of {questions.length}
       </h2>
+      <p style={{ fontSize: 18 }}>{current.question}</p>
+      <QuestionCard
+        questionId={current.id}
+        options={current.options}
+        onAnswer={handleAnswer}
+        disabled={submittingAnswer || feedback !== null}
+      />
 
-      <QuestionCard question={q} onSelect={handleAnswer} />
-
-      <ProgressBar answered={answered} total={total} />
-
-      <p style={{ marginTop: 8 }}>Elapsed {s => elapsed}s</p>
+      {feedback && (
+        <div style={{
+          marginTop: 16,
+          padding: 12,
+          backgroundColor: feedback.correct ? '#e6ffed' : '#ffe6e6',
+          border: `1px solid ${feedback.correct ? '#2c662d' : '#a12d2f'}`,
+          borderRadius: 4
+        }}>
+          <p style={{ margin: 0 }}>{feedback.text}</p>
+        </div>
+      )}
     </div>
   );
 }
