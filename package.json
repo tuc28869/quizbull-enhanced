@@ -1,15 +1,24 @@
 {
-  "dependencies": {
-    "@ai-sdk/perplexity": "^1.1.9",
-    "ai": "^4.3.15",
-    "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0"
+  "name": "quizbull-enhanced",
+  "version": "1.0.0",
+  "description": "Enhanced Quiz Application with AI Question Generation",
+  "scripts": {
+    "dev": "concurrently \"npm run server:dev\" \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "start": "concurrently \"npm run server:start\" \"npm run backend:start\" \"npm run frontend:build\"",
+    "server:dev": "cd server && npm run dev",
+    "server:start": "cd server && npm start",
+    "backend:dev": "cd backend && npm run dev", 
+    "backend:start": "cd backend && npm start",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:build": "cd frontend && npm run build",
+    "install:all": "npm install && cd server && npm install && cd ../backend && npm install && cd ../frontend && npm install",
+    "clean": "rm -rf node_modules server/node_modules backend/node_modules frontend/node_modules",
+    "reset": "npm run clean && npm run install:all"
   },
   "devDependencies": {
-    "husky": "^9.1.7"
+    "concurrently": "^7.6.0"
   },
-  "scripts": {
-    "prepare": "husky"
-  }
+  "keywords": ["quiz", "certification", "ai", "education"],
+  "author": "Your Name",
+  "license": "MIT"
 }
