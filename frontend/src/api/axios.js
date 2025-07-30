@@ -3,7 +3,7 @@ import axios from 'axios';
 import { store } from '../app/store';
 
 const api = axios.create({
-  baseURL: '/api'   // relative to http://localhost:3001
+  baseURL: '/api' // This now proxies correctly to http://localhost:3001/api
 });
 
 api.interceptors.request.use(cfg => {
